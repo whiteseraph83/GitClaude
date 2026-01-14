@@ -27,12 +27,18 @@
 </head>
 <body class="bg-black">
     <!-- HUD -->
-    <div class="absolute top-0 left-0 right-0 p-4 z-10 pointer-events-none">
+    <div class="absolute top-0 left-0 right-0 p-4 z-10 pointer-events-none flex justify-between">
         <div class="text-gray-400 text-sm font-mono">
             <div class="bg-gray-900/80 backdrop-blur-sm p-3 rounded-lg inline-block border border-red-900/30">
                 <p class="text-red-500">ESPLORA L'OSCURITÀ</p>
                 <p class="mt-1">Tieni premuto e muovi il mouse • Raggiungi la porta • Evita i nemici</p>
             </div>
+        </div>
+        <!-- Vite -->
+        <div id="hearts" class="text-3xl flex gap-2 bg-gray-900/80 backdrop-blur-sm p-3 rounded-lg border border-red-900/30">
+            <span>❤️</span>
+            <span>❤️</span>
+            <span>❤️</span>
         </div>
     </div>
 
@@ -66,7 +72,7 @@
             vy: 0,
             targetX: width / 2,
             targetY: height / 2,
-            radius: 80, // raggio di illuminazione
+            radius: 110, // raggio di illuminazione (aumentato)
             speed: 0.05, // fattore di accelerazione
             friction: 0.92 // attrito per rallentare
         };
@@ -77,6 +83,9 @@
         let isMouseDown = false;
         let gameOver = false;
         let gameWon = false;
+        let lives = 3; // Sistema di vite
+        let invulnerable = false; // Invulnerabilità temporanea dopo essere colpiti
+        let invulnerabilityTime = 0;
 
         // Porta obiettivo (rettangolo bianco)
         const door = {
@@ -154,6 +163,41 @@
             ctx.fill();
         }
 
+        // Funzione per aggiornare i cuori nell'UI
+        function updateHeartsUI() {
+            const heartsDiv = document.getElementById('hearts');
+            heartsDiv.innerHTML = '';
+            for (let i = 0; i < 3; i++) {
+                const heart = document.createElement('span');
+                if (i < lives) {
+                    heart.textContent = '❤️';
+                } else {
+                    heart.textContent = '🖤';
+                }
+                heartsDiv.appendChild(heart);
+            }
+        }
+
+        // Funzione per perdere una vita
+        function loseLife() {
+            if (invulnerable) return;
+
+            lives--;
+            updateHeartsUI();
+
+            if (lives <= 0) {
+                gameOver = true;
+                showEndScreen('GAME OVER', 'Sei stato catturato dall\'oscurità!', '#dc2626');
+            } else {
+                // Invulnerabilità temporanea di 1 secondo
+                invulnerable = true;
+                invulnerabilityTime = Date.now();
+                setTimeout(() => {
+                    invulnerable = false;
+                }, 1000);
+            }
+        }
+
         // Funzione per aggiornare la fisica del movimento
         function updatePlayer() {
             if (gameOver || gameWon) return;
@@ -197,7 +241,10 @@
         function updateEnemies() {
             if (gameOver || gameWon) return;
 
-            enemies.forEach(enemy => {
+            // Usa filter per rimuovere i nemici che hanno colpito il giocatore
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+
                 // Controlla se il nemico è illuminato
                 if (!enemy.active) {
                     const dx = player.x - enemy.x;
@@ -216,8 +263,8 @@
                     const distance = Math.sqrt(dx * dx + dy * dy);
 
                     if (distance > 0) {
-                        // Velocità uguale al giocatore
-                        const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+                        // Velocità ridotta (40% della velocità del giocatore)
+                        const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy) * 0.4;
                         enemy.x += (dx / distance) * speed;
                         enemy.y += (dy / distance) * speed;
                     }
@@ -227,12 +274,14 @@
                         (player.x - enemy.x) ** 2 + (player.y - enemy.y) ** 2
                     );
 
-                    if (collisionDist < player.radius * 0.3 + enemy.size) {
-                        gameOver = true;
-                        showEndScreen('GAME OVER', 'Sei stato catturato dall\'oscurità!', '#dc2626');
+                    if (collisionDist < player.radius * 0.3 + enemy.size && !invulnerable) {
+                        // Rimuovi il nemico dall'array
+                        enemies.splice(i, 1);
+                        // Perdi una vita
+                        loseLife();
                     }
                 }
-            });
+            }
         }
 
         // Funzione per controllare la vittoria
@@ -292,11 +341,23 @@
 
             // Disegna la luce corrente del personaggio (più intensa)
             lightCtx.globalCompositeOperation = 'lighter';
-            drawLight(lightCtx, player.x, player.y, player.radius, 1);
 
-            // Effetto pulsante sottile
-            const pulseRadius = player.radius + Math.sin(Date.now() * 0.003) * 5;
-            drawLight(lightCtx, player.x, player.y, pulseRadius * 0.5, 0.3);
+            // Effetto lampeggiante quando invulnerabile
+            if (invulnerable) {
+                const flash = Math.sin(Date.now() * 0.02) > 0 ? 1 : 0.3;
+                drawLight(lightCtx, player.x, player.y, player.radius, flash);
+                // Effetto rosso quando colpito
+                const pulseRadius = player.radius + Math.sin(Date.now() * 0.02) * 10;
+                lightCtx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+                lightCtx.beginPath();
+                lightCtx.arc(player.x, player.y, pulseRadius, 0, Math.PI * 2);
+                lightCtx.fill();
+            } else {
+                drawLight(lightCtx, player.x, player.y, player.radius, 1);
+                // Effetto pulsante sottile
+                const pulseRadius = player.radius + Math.sin(Date.now() * 0.003) * 5;
+                drawLight(lightCtx, player.x, player.y, pulseRadius * 0.5, 0.3);
+            }
 
             requestAnimationFrame(gameLoop);
         }
@@ -312,6 +373,9 @@
 
             // Disegna la posizione iniziale
             drawLight(revealCtx, player.x, player.y, player.radius, 0.4);
+
+            // Inizializza UI dei cuori
+            updateHeartsUI();
 
             // Avvia il loop
             gameLoop();
