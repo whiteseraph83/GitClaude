@@ -31,7 +31,7 @@
         <div class="text-gray-400 text-sm font-mono">
             <div class="bg-gray-900/80 backdrop-blur-sm p-3 rounded-lg inline-block border border-red-900/30">
                 <p class="text-red-500">ESPLORA L'OSCURITÀ</p>
-                <p class="mt-1">Clicca per muoverti • Illumina il percorso</p>
+                <p class="mt-1">Tieni premuto e muovi il mouse • Raggiungi la porta • Evita i nemici</p>
             </div>
         </div>
     </div>
@@ -74,7 +74,27 @@
         // Variabili di gioco
         let mouseX = 0;
         let mouseY = 0;
-        let isMoving = false;
+        let isMouseDown = false;
+        let gameOver = false;
+        let gameWon = false;
+
+        // Porta obiettivo (rettangolo bianco)
+        const door = {
+            x: width * 0.9,
+            y: height * 0.1,
+            width: 40,
+            height: 80
+        };
+
+        // Nemici (triangoli rossi)
+        const enemies = [
+            { x: width * 0.3, y: height * 0.2, size: 20, active: false },
+            { x: width * 0.7, y: height * 0.5, size: 20, active: false },
+            { x: width * 0.4, y: height * 0.7, size: 20, active: false },
+            { x: width * 0.6, y: height * 0.3, size: 20, active: false },
+            { x: width * 0.2, y: height * 0.6, size: 20, active: false },
+            { x: width * 0.8, y: height * 0.8, size: 20, active: false }
+        ];
 
         // Gestione resize
         window.addEventListener('resize', () => {
@@ -86,17 +106,29 @@
             lightCanvas.height = height;
         });
 
-        // Gestione click
-        lightCanvas.addEventListener('click', (e) => {
+        // Gestione mouse drag
+        lightCanvas.addEventListener('mousedown', (e) => {
+            if (gameOver || gameWon) return;
+            isMouseDown = true;
             player.targetX = e.clientX;
             player.targetY = e.clientY;
-            isMoving = true;
         });
 
-        // Gestione movimento mouse (per effetto visivo)
+        lightCanvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+
+        lightCanvas.addEventListener('mouseleave', () => {
+            isMouseDown = false;
+        });
+
         lightCanvas.addEventListener('mousemove', (e) => {
             mouseX = e.clientX;
             mouseY = e.clientY;
+            if (isMouseDown && !gameOver && !gameWon) {
+                player.targetX = e.clientX;
+                player.targetY = e.clientY;
+            }
         });
 
         // Funzione per disegnare il cerchio di luce con gradiente
@@ -111,25 +143,25 @@
             ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
         }
 
+        // Funzione per disegnare un triangolo
+        function drawTriangle(ctx, x, y, size, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x, y - size);
+            ctx.lineTo(x - size, y + size);
+            ctx.lineTo(x + size, y + size);
+            ctx.closePath();
+            ctx.fill();
+        }
+
         // Funzione per aggiornare la fisica del movimento
         function updatePlayer() {
-            if (!isMoving) return;
+            if (gameOver || gameWon) return;
 
-            const dx = player.targetX - player.x;
-            const dy = player.targetY - player.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (isMouseDown) {
+                const dx = player.targetX - player.x;
+                const dy = player.targetY - player.y;
 
-            // Se siamo vicini al target, fermiamoci
-            if (distance < 5) {
-                player.vx *= player.friction;
-                player.vy *= player.friction;
-
-                if (Math.abs(player.vx) < 0.1 && Math.abs(player.vy) < 0.1) {
-                    player.vx = 0;
-                    player.vy = 0;
-                    isMoving = false;
-                }
-            } else {
                 // Accelerazione verso il target
                 player.vx += dx * player.speed;
                 player.vy += dy * player.speed;
@@ -137,6 +169,13 @@
                 // Applica attrito
                 player.vx *= player.friction;
                 player.vy *= player.friction;
+            } else {
+                // Rallenta gradualmente quando il mouse non è premuto
+                player.vx *= 0.85;
+                player.vy *= 0.85;
+
+                if (Math.abs(player.vx) < 0.1) player.vx = 0;
+                if (Math.abs(player.vy) < 0.1) player.vy = 0;
             }
 
             // Aggiorna posizione
@@ -147,9 +186,81 @@
             player.x = Math.max(player.radius, Math.min(width - player.radius, player.x));
             player.y = Math.max(player.radius, Math.min(height - player.radius, player.y));
 
-            // Disegna sul canvas delle aree rivelate (permanente)
-            revealCtx.globalCompositeOperation = 'lighten';
-            drawLight(revealCtx, player.x, player.y, player.radius, 0.4);
+            // Disegna sul canvas delle aree rivelate (permanente) se si sta muovendo
+            if (Math.abs(player.vx) > 0.1 || Math.abs(player.vy) > 0.1) {
+                revealCtx.globalCompositeOperation = 'lighten';
+                drawLight(revealCtx, player.x, player.y, player.radius, 0.4);
+            }
+        }
+
+        // Funzione per aggiornare i nemici
+        function updateEnemies() {
+            if (gameOver || gameWon) return;
+
+            enemies.forEach(enemy => {
+                // Controlla se il nemico è illuminato
+                if (!enemy.active) {
+                    const dx = player.x - enemy.x;
+                    const dy = player.y - enemy.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < player.radius * 0.7) {
+                        enemy.active = true;
+                    }
+                }
+
+                // Se il nemico è attivo, insegue il giocatore
+                if (enemy.active) {
+                    const dx = player.x - enemy.x;
+                    const dy = player.y - enemy.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance > 0) {
+                        // Velocità uguale al giocatore
+                        const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+                        enemy.x += (dx / distance) * speed;
+                        enemy.y += (dy / distance) * speed;
+                    }
+
+                    // Controlla collisione con il giocatore
+                    const collisionDist = Math.sqrt(
+                        (player.x - enemy.x) ** 2 + (player.y - enemy.y) ** 2
+                    );
+
+                    if (collisionDist < player.radius * 0.3 + enemy.size) {
+                        gameOver = true;
+                        showEndScreen('GAME OVER', 'Sei stato catturato dall\'oscurità!', '#dc2626');
+                    }
+                }
+            });
+        }
+
+        // Funzione per controllare la vittoria
+        function checkDoorCollision() {
+            if (gameOver || gameWon) return;
+
+            if (player.x > door.x && player.x < door.x + door.width &&
+                player.y > door.y && player.y < door.y + door.height) {
+                gameWon = true;
+                showEndScreen('VITTORIA!', 'Sei riuscito a fuggire dall\'oscurità!', '#16a34a');
+            }
+        }
+
+        // Funzione per mostrare la schermata finale
+        function showEndScreen(title, message, color) {
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 flex items-center justify-center z-20';
+            overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+            overlay.innerHTML = `
+                <div class="text-center">
+                    <h1 class="text-6xl font-bold mb-4" style="color: ${color}">${title}</h1>
+                    <p class="text-2xl text-gray-300 mb-8">${message}</p>
+                    <button onclick="location.reload()" class="bg-gray-700 hover:bg-gray-600 text-white px-8 py-3 rounded-lg text-xl font-semibold cursor-pointer">
+                        Riprova
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
         }
 
         // Loop di gioco
@@ -161,8 +272,23 @@
             lightCtx.fillStyle = '#0a0a0a';
             lightCtx.fillRect(0, 0, width, height);
 
+            // Aggiorna e disegna nemici
+            updateEnemies();
+            enemies.forEach(enemy => {
+                if (enemy.active) {
+                    drawTriangle(lightCtx, enemy.x, enemy.y, enemy.size, '#dc2626');
+                }
+            });
+
+            // Disegna la porta (sempre visibile se illuminata)
+            lightCtx.fillStyle = '#ffffff';
+            lightCtx.fillRect(door.x, door.y, door.width, door.height);
+
             // Aggiorna il personaggio
             updatePlayer();
+
+            // Controlla collisione con la porta
+            checkDoorCollision();
 
             // Disegna la luce corrente del personaggio (più intensa)
             lightCtx.globalCompositeOperation = 'lighter';
@@ -193,46 +319,6 @@
 
         // Avvia il gioco
         init();
-
-        // Easter egg: aggiungi alcune "zone di interesse" nascoste
-        const hiddenElements = [
-            { x: width * 0.2, y: height * 0.3, emoji: '👻', revealed: false },
-            { x: width * 0.8, y: height * 0.7, emoji: '🕯️', revealed: false },
-            { x: width * 0.5, y: height * 0.8, emoji: '💀', revealed: false },
-            { x: width * 0.3, y: height * 0.6, emoji: '🗝️', revealed: false },
-            { x: width * 0.7, y: height * 0.2, emoji: '🚪', revealed: false }
-        ];
-
-        // Disegna elementi nascosti quando vengono scoperti
-        function checkHiddenElements() {
-            hiddenElements.forEach(element => {
-                if (element.revealed) return;
-
-                const dx = player.x - element.x;
-                const dy = player.y - element.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < player.radius * 0.6) {
-                    element.revealed = true;
-
-                    // Disegna l'elemento scoperto
-                    revealCtx.font = '32px sans-serif';
-                    revealCtx.fillStyle = '#ff6666';
-                    revealCtx.fillText(element.emoji, element.x - 16, element.y + 16);
-
-                    // Effetto di scoperta
-                    const notification = document.createElement('div');
-                    notification.className = 'fixed bottom-4 right-4 bg-red-900/90 text-red-100 px-4 py-2 rounded-lg border border-red-500 animate-pulse';
-                    notification.textContent = `Hai scoperto: ${element.emoji}`;
-                    document.body.appendChild(notification);
-
-                    setTimeout(() => notification.remove(), 3000);
-                }
-            });
-        }
-
-        // Aggiungi il controllo degli elementi nascosti al game loop
-        setInterval(checkHiddenElements, 100);
     </script>
 </body>
 </html>
