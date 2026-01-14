@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oscurità - Horror Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            cursor: crosshair;
+        }
+
+        #revealCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #lightCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body class="bg-black">
+    <!-- HUD -->
+    <div class="absolute top-0 left-0 right-0 p-4 z-10 pointer-events-none">
+        <div class="text-gray-400 text-sm font-mono">
+            <div class="bg-gray-900/80 backdrop-blur-sm p-3 rounded-lg inline-block border border-red-900/30">
+                <p class="text-red-500">ESPLORA L'OSCURITÀ</p>
+                <p class="mt-1">Clicca per muoverti • Illumina il percorso</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Canvas per le aree rivelate permanentemente -->
+    <canvas id="revealCanvas"></canvas>
+
+    <!-- Canvas per la luce del personaggio -->
+    <canvas id="lightCanvas"></canvas>
+
+    <script>
+        // Setup dei canvas
+        const revealCanvas = document.getElementById('revealCanvas');
+        const lightCanvas = document.getElementById('lightCanvas');
+        const revealCtx = revealCanvas.getContext('2d');
+        const lightCtx = lightCanvas.getContext('2d');
+
+        // Dimensioni dello schermo
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+
+        revealCanvas.width = width;
+        revealCanvas.height = height;
+        lightCanvas.width = width;
+        lightCanvas.height = height;
+
+        // Personaggio (cerchio di luce)
+        const player = {
+            x: width / 2,
+            y: height / 2,
+            vx: 0,
+            vy: 0,
+            targetX: width / 2,
+            targetY: height / 2,
+            radius: 80, // raggio di illuminazione
+            speed: 0.05, // fattore di accelerazione
+            friction: 0.92 // attrito per rallentare
+        };
+
+        // Variabili di gioco
+        let mouseX = 0;
+        let mouseY = 0;
+        let isMoving = false;
+
+        // Gestione resize
+        window.addEventListener('resize', () => {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            revealCanvas.width = width;
+            revealCanvas.height = height;
+            lightCanvas.width = width;
+            lightCanvas.height = height;
+        });
+
+        // Gestione click
+        lightCanvas.addEventListener('click', (e) => {
+            player.targetX = e.clientX;
+            player.targetY = e.clientY;
+            isMoving = true;
+        });
+
+        // Gestione movimento mouse (per effetto visivo)
+        lightCanvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        // Funzione per disegnare il cerchio di luce con gradiente
+        function drawLight(ctx, x, y, radius, opacity = 1) {
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, `rgba(255, 245, 220, ${0.9 * opacity})`);
+            gradient.addColorStop(0.3, `rgba(255, 230, 180, ${0.6 * opacity})`);
+            gradient.addColorStop(0.6, `rgba(200, 180, 140, ${0.3 * opacity})`);
+            gradient.addColorStop(1, `rgba(100, 80, 60, 0)`);
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+        }
+
+        // Funzione per aggiornare la fisica del movimento
+        function updatePlayer() {
+            if (!isMoving) return;
+
+            const dx = player.targetX - player.x;
+            const dy = player.targetY - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Se siamo vicini al target, fermiamoci
+            if (distance < 5) {
+                player.vx *= player.friction;
+                player.vy *= player.friction;
+
+                if (Math.abs(player.vx) < 0.1 && Math.abs(player.vy) < 0.1) {
+                    player.vx = 0;
+                    player.vy = 0;
+                    isMoving = false;
+                }
+            } else {
+                // Accelerazione verso il target
+                player.vx += dx * player.speed;
+                player.vy += dy * player.speed;
+
+                // Applica attrito
+                player.vx *= player.friction;
+                player.vy *= player.friction;
+            }
+
+            // Aggiorna posizione
+            player.x += player.vx;
+            player.y += player.vy;
+
+            // Mantieni nei confini dello schermo
+            player.x = Math.max(player.radius, Math.min(width - player.radius, player.x));
+            player.y = Math.max(player.radius, Math.min(height - player.radius, player.y));
+
+            // Disegna sul canvas delle aree rivelate (permanente)
+            revealCtx.globalCompositeOperation = 'lighten';
+            drawLight(revealCtx, player.x, player.y, player.radius, 0.4);
+        }
+
+        // Loop di gioco
+        function gameLoop() {
+            // Pulisci il canvas della luce corrente
+            lightCtx.clearRect(0, 0, width, height);
+
+            // Sfondo scuro
+            lightCtx.fillStyle = '#0a0a0a';
+            lightCtx.fillRect(0, 0, width, height);
+
+            // Aggiorna il personaggio
+            updatePlayer();
+
+            // Disegna la luce corrente del personaggio (più intensa)
+            lightCtx.globalCompositeOperation = 'lighter';
+            drawLight(lightCtx, player.x, player.y, player.radius, 1);
+
+            // Effetto pulsante sottile
+            const pulseRadius = player.radius + Math.sin(Date.now() * 0.003) * 5;
+            drawLight(lightCtx, player.x, player.y, pulseRadius * 0.5, 0.3);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Inizializza il gioco
+        function init() {
+            // Sfondo nero completo
+            revealCtx.fillStyle = '#000000';
+            revealCtx.fillRect(0, 0, width, height);
+
+            lightCtx.fillStyle = '#000000';
+            lightCtx.fillRect(0, 0, width, height);
+
+            // Disegna la posizione iniziale
+            drawLight(revealCtx, player.x, player.y, player.radius, 0.4);
+
+            // Avvia il loop
+            gameLoop();
+        }
+
+        // Avvia il gioco
+        init();
+
+        // Easter egg: aggiungi alcune "zone di interesse" nascoste
+        const hiddenElements = [
+            { x: width * 0.2, y: height * 0.3, emoji: '👻', revealed: false },
+            { x: width * 0.8, y: height * 0.7, emoji: '🕯️', revealed: false },
+            { x: width * 0.5, y: height * 0.8, emoji: '💀', revealed: false },
+            { x: width * 0.3, y: height * 0.6, emoji: '🗝️', revealed: false },
+            { x: width * 0.7, y: height * 0.2, emoji: '🚪', revealed: false }
+        ];
+
+        // Disegna elementi nascosti quando vengono scoperti
+        function checkHiddenElements() {
+            hiddenElements.forEach(element => {
+                if (element.revealed) return;
+
+                const dx = player.x - element.x;
+                const dy = player.y - element.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < player.radius * 0.6) {
+                    element.revealed = true;
+
+                    // Disegna l'elemento scoperto
+                    revealCtx.font = '32px sans-serif';
+                    revealCtx.fillStyle = '#ff6666';
+                    revealCtx.fillText(element.emoji, element.x - 16, element.y + 16);
+
+                    // Effetto di scoperta
+                    const notification = document.createElement('div');
+                    notification.className = 'fixed bottom-4 right-4 bg-red-900/90 text-red-100 px-4 py-2 rounded-lg border border-red-500 animate-pulse';
+                    notification.textContent = `Hai scoperto: ${element.emoji}`;
+                    document.body.appendChild(notification);
+
+                    setTimeout(() => notification.remove(), 3000);
+                }
+            });
+        }
+
+        // Aggiungi il controllo degli elementi nascosti al game loop
+        setInterval(checkHiddenElements, 100);
+    </script>
+</body>
+</html>
